@@ -14,7 +14,9 @@ static class Program {
     using var mutex = new Mutex(true, @"Local\TwoFingerClick", out bool first);
     if (!first) return;
     Application.EnableVisualStyles();
-    using var app = new TouchWindow(Array.IndexOf(args, "--log") >= 0, Array.IndexOf(args, "--no-tap") < 0);
+    var settings = Settings.Load();
+    if (Array.IndexOf(args, "--no-tap") >= 0) settings.TapEnabled = false;
+    using var app = new TouchWindow(Array.IndexOf(args, "--log") >= 0, settings);
     Application.Run();
   }
 }
@@ -25,12 +27,12 @@ sealed class TouchWindow : NativeWindow, IDisposable {
   const int ReportId = 0x0D, ReportLen = 30, CountOffset = 28, ButtonOffset = 29;
   const string DeviceMatch = "vid_05ac&pid_0265&mi_01";
 
-  const int TapMaxMs = 220;          // toque com 2 dedos mais longo que isso não é toque
-  const int TapMaxMove = 120;        // deslocamento máximo (unidades do touchpad, ~0..4096)
-  const int StaleMs = 250;           // contagem de dedos mais velha que isso é ignorada
-  const int SwallowAfterTapMs = 150; // engole o clique esquerdo que o firmware gere no fim do toque
+  public readonly Settings Settings;
+  // Avisos para a janela Opções: mudança no nº de dedos e eventos (sessões, cliques trocados).
+  public event Action<int> ContactsChanged;
+  public event Action<string> Info;
+  OptionsForm options;
 
-  readonly bool tapEnabled;
   readonly StreamWriter log;
   readonly NotifyIcon tray;
   readonly LowLevelMouseProc hookProc;
@@ -50,8 +52,8 @@ sealed class TouchWindow : NativeWindow, IDisposable {
   readonly int[] startX = new int[8], startY = new int[8];
   readonly bool[] seen = new bool[8];
 
-  public TouchWindow(bool logging, bool tap) {
-    tapEnabled = tap;
+  public TouchWindow(bool logging, Settings settings) {
+    Settings = settings;
     if (logging) {
       var path = Path.Combine(AppContext.BaseDirectory, "TwoFingerClick.log");
       log = new StreamWriter(path, true) { AutoFlush = true };
@@ -66,15 +68,33 @@ sealed class TouchWindow : NativeWindow, IDisposable {
     if (hook == IntPtr.Zero) Log("SetWindowsHookEx falhou: " + Marshal.GetLastWin32Error());
 
     var menu = new ContextMenuStrip();
-    menu.Items.Add(new ToolStripMenuItem("Toque com 2 dedos") { Checked = tapEnabled, Enabled = false });
+    menu.Items.Add("Opções...", null, (s, e) => ShowOptions());
+    menu.Items.Add(new ToolStripSeparator());
     menu.Items.Add("Sair", null, (s, e) => Application.Exit());
-    tray = new NotifyIcon { Icon = System.Drawing.SystemIcons.Application, Text = "Clique com 2 dedos", ContextMenuStrip = menu, Visible = true };
-    Log($"iniciado (toque={tapEnabled})");
+    tray = new NotifyIcon { Icon = TrayIcon.Create(), Text = "Clique com 2 dedos", ContextMenuStrip = menu, Visible = true };
+    tray.DoubleClick += (s, e) => ShowOptions();
+    Log($"iniciado (toque={Settings.TapEnabled})");
+  }
+
+  void ShowOptions() {
+    if (options == null || options.IsDisposed) {
+      options = new OptionsForm(this);
+      options.Show();
+    }
+    options.WindowState = FormWindowState.Normal;
+    options.Activate();
   }
 
   static long Now => Environment.TickCount64;
 
   void Log(string s) => log?.WriteLine($"{DateTime.Now:HH:mm:ss.fff} {s}");
+
+  // Registra e avisa a janela Opções; o aviso é postado para não atrasar o hook.
+  void Event(string s) {
+    Log(s);
+    var o = options;
+    if (Info != null && o != null && !o.IsDisposed) o.BeginInvoke(() => Info?.Invoke(s));
+  }
 
   protected override void WndProc(ref Message m) {
     if (m.Msg == WM_INPUT) OnRawInput(m.LParam);
@@ -115,6 +135,7 @@ sealed class TouchWindow : NativeWindow, IDisposable {
     int n = r[CountOffset];
     bool button = (r[ButtonOffset] & 1) != 0;
     long now = Now;
+    if (n != contacts) ContactsChanged?.Invoke(n);
     contacts = n;
     lastReport = now;
 
@@ -137,10 +158,10 @@ sealed class TouchWindow : NativeWindow, IDisposable {
     if (n == 0) {
       inSession = false;
       long dur = now - sessionStart;
-      Log($"sessão: max={sessionMax} dur={dur}ms mov={moved} botão={sessionButton}");
-      if (tapEnabled && sessionMax == 2 && !sessionButton && dur <= TapMaxMs && moved <= TapMaxMove) {
-        Log("toque com 2 dedos -> clique direito");
-        swallowUntil = now + SwallowAfterTapMs;
+      Event($"sessão: {sessionMax} dedo(s), {dur} ms, mov {moved}{(sessionButton ? ", apertou" : "")}");
+      if (Settings.TapEnabled && sessionMax == 2 && !sessionButton && dur <= Settings.TapMaxMs && moved <= Settings.TapMaxMove) {
+        Event("toque com 2 dedos -> clique direito");
+        swallowUntil = now + Settings.SwallowAfterTapMs;
         SendRight(true); SendRight(false);
       }
     }
@@ -151,21 +172,51 @@ sealed class TouchWindow : NativeWindow, IDisposable {
       var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
       bool injected = (info.Flags & LLMHF_INJECTED) != 0;
       int msg = (int)wParam;
+      if (!injected && msg == WM_MOUSEMOVE && ScaleMove(info.Pt)) return (IntPtr)1;
       if (!injected && msg == WM_LBUTTONDOWN) {
         long now = Now;
-        if (contacts >= 2 && now - lastReport <= StaleMs) {
-          Log($"clique com {contacts} dedos -> botão direito");
+        if (contacts >= 2 && now - lastReport <= Settings.StaleMs) {
+          Event($"clique com {contacts} dedos -> botão direito");
           rightHeld = true;
           SendRight(true);
           return (IntPtr)1;
         }
-        if (now <= swallowUntil) { Log("clique esquerdo do toque engolido"); swallowUntil = -1; return (IntPtr)1; }
+        if (now <= swallowUntil) { Event("clique esquerdo do toque engolido"); swallowUntil = -1; return (IntPtr)1; }
       } else if (!injected && msg == WM_LBUTTONUP) {
         if (rightHeld) { rightHeld = false; SendRight(false); return (IntPtr)1; }
         if (swallowUntil == -1) { swallowUntil = 0; return (IntPtr)1; }
       }
     }
     return CallNextHookEx(hook, code, wParam, lParam);
+  }
+
+  // Velocidade só do touchpad: com dedos no touchpad, o movimento vem dele; multiplica o
+  // deslocamento que o Windows já calculou (com a velocidade e a aceleração do sistema) e
+  // move o cursor por SendInput absoluto. Sem dedos, o movimento passa intacto (outros mouses).
+  double fracX, fracY;
+
+  bool ScaleMove(POINT target) {
+    double factor = Settings.TouchpadSpeed / 100.0;
+    if (Math.Abs(factor - 1) < 0.001 || contacts < 1 || Now - lastReport > Settings.StaleMs) {
+      fracX = fracY = 0;
+      return false;
+    }
+    if (!GetCursorPos(out var cur)) return false;
+    fracX += (target.X - cur.X) * factor;
+    fracY += (target.Y - cur.Y) * factor;
+    int dx = (int)Math.Truncate(fracX), dy = (int)Math.Truncate(fracY);
+    fracX -= dx; fracY -= dy;
+    if (dx == 0 && dy == 0) return true;
+
+    int vx = GetSystemMetrics(SM_XVIRTUALSCREEN), vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN), vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    int x = Math.Clamp(cur.X + dx, vx, vx + vw - 1), y = Math.Clamp(cur.Y + dy, vy, vy + vh - 1);
+    var input = new INPUT { Type = 0, Mi = new MOUSEINPUT {
+      Dx = (int)Math.Round((x - vx) * 65535.0 / Math.Max(1, vw - 1)),
+      Dy = (int)Math.Round((y - vy) * 65535.0 / Math.Max(1, vh - 1)),
+      Flags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK } };
+    SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+    return true;
   }
 
   static void SendRight(bool down) {
@@ -175,16 +226,19 @@ sealed class TouchWindow : NativeWindow, IDisposable {
 
   public void Dispose() {
     if (hook != IntPtr.Zero) { UnhookWindowsHookEx(hook); hook = IntPtr.Zero; }
+    options?.Dispose();
     tray.Visible = false; tray.Dispose();
     log?.Dispose();
     DestroyHandle();
   }
 
   // --- Win32 ---
-  const int WM_INPUT = 0x00FF, WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202, WH_MOUSE_LL = 14;
+  const int WM_INPUT = 0x00FF, WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202, WH_MOUSE_LL = 14;
   const int RIDEV_INPUTSINK = 0x100, RIM_TYPEHID = 2, LLMHF_INJECTED = 1;
   const uint RID_INPUT = 0x10000003, RIDI_DEVICENAME = 0x20000007;
-  const uint MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010;
+  const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010;
+  const uint MOUSEEVENTF_VIRTUALDESK = 0x4000, MOUSEEVENTF_ABSOLUTE = 0x8000;
+  const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77, SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79;
 
   delegate IntPtr LowLevelMouseProc(int code, IntPtr wParam, IntPtr lParam);
 
@@ -202,5 +256,7 @@ sealed class TouchWindow : NativeWindow, IDisposable {
   [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hook);
   [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] inputs, int size);
+  [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
+  [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
   [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandle(string name);
 }

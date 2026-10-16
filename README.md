@@ -7,8 +7,9 @@ The touchpad identifies itself as an Apple Magic Trackpad 2 (USB `VID_05AC PID_0
 ## What it does
 
 - **Click with two fingers** (physically press the pad) → right click.
-- **Tap with two fingers** → right click. You can turn this off with `--no-tap`.
-- Everything else (cursor movement, one-finger click) still comes from the device's normal mouse behavior.
+- **Tap with two fingers** → right click. You can turn this off in Options.
+- **Touchpad-only cursor speed:** 25–300% on top of the Windows pointer speed. Other mice are not affected.
+- Everything else (one-finger click and the cursor movement itself) still comes from the device's normal mouse behavior.
 
 ## Requirements
 
@@ -29,13 +30,21 @@ The output is `publish\TwoFingerClick.exe`.
 publish\TwoFingerClick.exe
 ```
 
-An icon appears in the system tray. Right-click it and choose **Sair** to quit. Only one instance runs at a time.
+A touchpad icon appears in the system tray. Right-click it for **Opções...** (or double-click the icon) and **Sair** (quit). Only one instance runs at a time.
+
+### Options window
+
+- **Tempos:** turn the two-finger tap on or off and adjust the timing values (see [Tuning](#tuning)).
+- **Cursor do touchpad:** cursor speed for the touchpad only, as a percentage.
+- **Teste:** shows how many fingers are on the pad, has an area that shows which button you clicked, and lists recent events (each touch's finger count, duration and movement, and every click that was converted). Use it to tune the values.
+
+Changes take effect immediately so you can test them. **OK** saves them, **Cancelar** reverts them and **Restaurar padrões** fills in the defaults. Settings are stored in `%APPDATA%\TwoFingerClick\settings.json`.
 
 Options:
 
 | Option     | Effect                                                       |
 |------------|--------------------------------------------------------------|
-| `--no-tap` | Turns off the two-finger tap (the two-finger click still works) |
+| `--no-tap` | Turns off the two-finger tap for this run (overrides the saved setting) |
 | `--log`    | Writes `TwoFingerClick.log` next to the exe, for debugging   |
 
 ## Start with Windows
@@ -51,11 +60,12 @@ To uninstall, delete that shortcut and quit the program from the tray.
 
 ## Tuning
 
-These constants at the top of `TouchWindow` in `Program.cs` control the timing and movement limits:
+These values can be changed in the Options window:
 
-| Constant            | Default | Meaning                                                     |
-|---------------------|---------|-------------------------------------------------------------|
-| `TapMaxMs`          | 220     | A two-finger touch that lasts longer than this is not a tap |
-| `TapMaxMove`        | 120     | Maximum finger movement for a tap, in touchpad units (about 0–4096) |
-| `StaleMs`           | 250     | A finger count older than this is ignored                   |
-| `SwallowAfterTapMs` | 150     | How long after a tap a left click from the device's firmware is discarded |
+| Setting (JSON name)                                       | Default | Meaning |
+|-----------------------------------------------------------|---------|---------|
+| Duração máxima do toque (`TapMaxMs`)                      | 220 ms  | A two-finger touch that lasts longer than this is not a tap |
+| Movimento máximo do toque (`TapMaxMove`)                  | 120     | Maximum finger movement for a tap, in touchpad units (about 0–4096) |
+| Validade da contagem de dedos (`StaleMs`)                 | 250 ms  | A finger count older than this is ignored |
+| Ignorar clique esquerdo após toque (`SwallowAfterTapMs`)  | 150 ms  | How long after a tap a left click from the device's firmware is discarded |
+| Velocidade (`TouchpadSpeed`)                              | 100%    | Cursor speed when the movement comes from the touchpad |
