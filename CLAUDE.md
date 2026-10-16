@@ -46,6 +46,7 @@ Files: `Program.cs` (entry point, `TouchWindow`: raw input, hook, tray), `Settin
 - **Settings:** `Settings` is saved as `%APPDATA%\TwoFingerClick\settings.json` (`TapEnabled`, `TapMaxMs`, `TapMaxMove`, `StaleMs`, `SwallowAfterTapMs`, `TouchpadSpeed`). `TouchWindow` reads it on every event, so changes apply immediately.
 - **Options window:** opened from the tray menu "Opções..." or by double-clicking the icon. Only one instance exists. Edits are applied live, OK saves, and Cancel/close restores the copy taken when the window opened. The test area paints itself on mouse down (blue = left, orange = right) and suppresses its context menu. `TouchWindow` raises `ContactsChanged` (synchronously, from raw input) and `Info` (posted with `BeginInvoke`, so the hook returns quickly). The window shows these as the finger count and the event list.
 - **Tray icon:** `TrayIcon.Create()` draws a rounded pad with button split and two orange dots at `SmallIconSize`. It is white on a dark taskbar and dark gray on a light one (`SystemUsesLightTheme`). It is not redrawn when the theme changes until the program restarts.
+- **Second launch:** if the mutex already exists, the new process calls `AllowSetForegroundWindow(ASFW_ANY)`, sets the auto-reset event `Local\TwoFingerClick.Show` and exits. The running instance waits on it (`ThreadPool.RegisterWaitForSingleObject`) and posts `WM_APP+1` to its window, which opens Options. `--options` does the same at startup.
 - **Process:** a single-instance mutex `Local\TwoFingerClick`, a message-only `NativeWindow` and a `NotifyIcon` ("Opções...", "Sair"). `--log` writes `TwoFingerClick.log` next to the exe. `--no-tap` turns off the tap for that run.
 - The hook runs on the UI thread and must return quickly: no I/O in it beyond the optional log line.
 
@@ -56,6 +57,8 @@ dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile
 ```
 
 - Autostart: scheduled task `TwoFingerClick`, trigger at logon of the user, `LogonType Interactive`, `RunLevel Limited`, no time limit, `MultipleInstances IgnoreNew`, runs `publish\TwoFingerClick.exe` with no arguments. Registering it needs no administrator rights. A Startup folder shortcut was used first and was dropped: Windows started it about 4.5 minutes after logon.
+- Start menu: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Clique com 2 dedos.lnk` → exe with `--options`.
+- The first version of the Options window changed the global Windows pointer speed (`SPI_SETMOUSESPEED`) live and restored it on close. Killing the process skipped the restore, and the speed reverted at reboot. The current version only scales touchpad moves and never touches the Windows setting. Keep it that way.
 - The exe is locked while it runs: quit it (tray → Sair, or `Stop-Process -Name TwoFingerClick`) before republishing.
 
 ## Possible next steps

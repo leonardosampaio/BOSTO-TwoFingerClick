@@ -30,7 +30,9 @@ The output is `publish\TwoFingerClick.exe`.
 publish\TwoFingerClick.exe
 ```
 
-A touchpad icon appears in the system tray. Right-click it for **Opções...** (or double-click the icon) and **Sair** (quit). Only one instance runs at a time.
+A touchpad icon appears in the system tray. Right-click it for **Opções...** (or double-click the icon) and **Sair** (quit). Only one instance runs at a time: starting it again while it runs opens the Options window of the running instance.
+
+For a Start menu entry, create a shortcut in `%APPDATA%\Microsoft\Windows\Start Menu\Programs` pointing to the exe with `--options`. It starts the program if needed and opens Options.
 
 ### Options window
 
@@ -45,7 +47,8 @@ Options:
 | Option     | Effect                                                       |
 |------------|--------------------------------------------------------------|
 | `--no-tap` | Turns off the two-finger tap for this run (overrides the saved setting) |
-| `--log`    | Writes `TwoFingerClick.log` next to the exe, for debugging   |
+| `--options`| Opens the Options window on start                            |
+| `--log`    | Writes `TwoFingerClick.log` next to the exe, for debugging (including the settings loaded at start) |
 
 ## Start with Windows
 

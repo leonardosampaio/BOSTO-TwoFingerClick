@@ -12,12 +12,29 @@ static class Program {
   [STAThread]
   static void Main(string[] args) {
     using var mutex = new Mutex(true, @"Local\TwoFingerClick", out bool first);
-    if (!first) return;
+    using var show = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\TwoFingerClick.Show");
+    if (!first) {
+      // Já está rodando (ex.: aberto pelo menu Iniciar): pede para a instância abrir as Opções.
+      AllowSetForegroundWindow(ASFW_ANY);
+      show.Set();
+      return;
+    }
     Application.EnableVisualStyles();
     var settings = Settings.Load();
     if (Array.IndexOf(args, "--no-tap") >= 0) settings.TapEnabled = false;
     using var app = new TouchWindow(Array.IndexOf(args, "--log") >= 0, settings);
+    using var wait = new RegisteredWaitHandleGuard(ThreadPool.RegisterWaitForSingleObject(show, (_, _) => app.RequestOptions(), null, -1, false));
+    if (Array.IndexOf(args, "--options") >= 0) app.RequestOptions();
     Application.Run();
+  }
+
+  const int ASFW_ANY = -1;
+  [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);
+
+  sealed class RegisteredWaitHandleGuard : IDisposable {
+    readonly RegisteredWaitHandle h;
+    public RegisteredWaitHandleGuard(RegisteredWaitHandle h) => this.h = h;
+    public void Dispose() => h.Unregister(null);
   }
 }
 
@@ -73,8 +90,12 @@ sealed class TouchWindow : NativeWindow, IDisposable {
     menu.Items.Add("Sair", null, (s, e) => Application.Exit());
     tray = new NotifyIcon { Icon = TrayIcon.Create(), Text = "Clique com 2 dedos", ContextMenuStrip = menu, Visible = true };
     tray.DoubleClick += (s, e) => ShowOptions();
-    Log($"iniciado (toque={Settings.TapEnabled})");
+    Log($"iniciado: toque={Settings.TapEnabled} tapMs={Settings.TapMaxMs} tapMov={Settings.TapMaxMove} " +
+        $"staleMs={Settings.StaleMs} engolirMs={Settings.SwallowAfterTapMs} velocidade={Settings.TouchpadSpeed}%");
   }
+
+  // Pode ser chamado de outra thread: posta para a thread da janela.
+  public void RequestOptions() => PostMessage(Handle, WM_SHOW_OPTIONS, IntPtr.Zero, IntPtr.Zero);
 
   void ShowOptions() {
     if (options == null || options.IsDisposed) {
@@ -98,6 +119,7 @@ sealed class TouchWindow : NativeWindow, IDisposable {
 
   protected override void WndProc(ref Message m) {
     if (m.Msg == WM_INPUT) OnRawInput(m.LParam);
+    else if (m.Msg == WM_SHOW_OPTIONS) ShowOptions();
     base.WndProc(ref m);
   }
 
@@ -233,6 +255,7 @@ sealed class TouchWindow : NativeWindow, IDisposable {
   }
 
   // --- Win32 ---
+  const int WM_SHOW_OPTIONS = 0x8001; // WM_APP + 1
   const int WM_INPUT = 0x00FF, WM_MOUSEMOVE = 0x0200, WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202, WH_MOUSE_LL = 14;
   const int RIDEV_INPUTSINK = 0x100, RIM_TYPEHID = 2, LLMHF_INJECTED = 1;
   const uint RID_INPUT = 0x10000003, RIDI_DEVICENAME = 0x20000007;
@@ -256,6 +279,7 @@ sealed class TouchWindow : NativeWindow, IDisposable {
   [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hook);
   [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] inputs, int size);
+  [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
   [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
   [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandle(string name);
