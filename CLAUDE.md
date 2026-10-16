@@ -55,7 +55,7 @@ Files: `Program.cs` (entry point, `TouchWindow`: raw input, hook, tray), `Settin
 dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish
 ```
 
-- Startup shortcut: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\TwoFingerClick.lnk` → `publish\TwoFingerClick.exe` (no arguments).
+- Autostart: scheduled task `TwoFingerClick`, trigger at logon of the user, `LogonType Interactive`, `RunLevel Limited`, no time limit, `MultipleInstances IgnoreNew`, runs `publish\TwoFingerClick.exe` with no arguments. Registering it needs no administrator rights. A Startup folder shortcut was used first and was dropped: Windows started it about 4.5 minutes after logon.
 - The exe is locked while it runs: quit it (tray → Sair, or `Stop-Process -Name TwoFingerClick`) before republishing.
 
 ## Possible next steps

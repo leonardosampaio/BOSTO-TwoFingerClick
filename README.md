@@ -49,14 +49,22 @@ Options:
 
 ## Start with Windows
 
-To start it at logon, put a shortcut to the exe in the Startup folder (`shell:startup`). From PowerShell:
+To start it at logon, register a scheduled task for your user (no administrator rights needed). From PowerShell, in the project folder:
 
 ```powershell
-$s = (New-Object -ComObject WScript.Shell).CreateShortcut("$([Environment]::GetFolderPath('Startup'))\TwoFingerClick.lnk")
-$s.TargetPath = "$PWD\publish\TwoFingerClick.exe"; $s.WorkingDirectory = "$PWD\publish"; $s.Save()
+$exe = "$PWD\publish\TwoFingerClick.exe"; $user = "$env:USERDOMAIN\$env:USERNAME"
+Register-ScheduledTask -TaskName TwoFingerClick -Force `
+  -Action (New-ScheduledTaskAction -Execute $exe -WorkingDirectory (Split-Path $exe)) `
+  -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $user) `
+  -Principal (New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited) `
+  -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -MultipleInstances IgnoreNew)
 ```
 
-To uninstall, delete that shortcut and quit the program from the tray.
+A shortcut in the Startup folder (`shell:startup`) also works, but Windows can delay Startup folder programs by several minutes after logon.
+
+Windows 11 puts new tray icons in the hidden overflow (the `^` arrow). To keep the icon visible, turn it on in Settings > Personalization > Taskbar > Other system tray icons.
+
+To uninstall, run `Unregister-ScheduledTask -TaskName TwoFingerClick` and quit the program from the tray.
 
 ## Tuning
 
