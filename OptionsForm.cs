@@ -24,12 +24,16 @@ sealed class OptionsForm : Form {
   readonly CheckBox swipeInvert = new CheckBox { Text = "Inverter (dedos para a direita = avançar)", AutoSize = true };
   readonly NumericUpDown swipeMin = Num(100, 3000, 50);
 
-  readonly Label fingers = new Label { AutoSize = true, Text = "Dedos no touchpad: 0" };
+  readonly Label fingers = new Label { AutoSize = true, Text = "Dedos no touchpad: 0", Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 24, 3) };
+  readonly CheckBox showAll = new CheckBox { Text = "Mostrar sessões de toque e eventos em outros apps", AutoSize = true, Checked = false };
   readonly Label testArea = new Label {
     Text = "Clique aqui para testar", TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill,
     BorderStyle = BorderStyle.FixedSingle, BackColor = SystemColors.Window, Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 11f),
   };
   readonly ListBox events = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false };
+  // Todos os eventos (os 200 últimos, mais novo primeiro); a lista mostra só os que passam no filtro.
+  sealed record EventLine(string Text, bool Session, bool Outside) { public override string ToString() => Text; }
+  readonly List<EventLine> allEvents = new();
 
   // Itens da lista: no clique, "Left" é deixar o clique esquerdo passar; no toque, não há clique
   // original, então "nada" é a opção de desligar e "botão esquerdo" vira um clique esquerdo.
@@ -211,7 +215,17 @@ sealed class OptionsForm : Form {
     test.RowStyles.Add(new RowStyle(SizeType.AutoSize));
     test.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
     test.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-    test.Controls.Add(fingers, 0, 0);
+    var top = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
+    top.Controls.Add(fingers);
+    top.Controls.Add(showAll);
+    test.Controls.Add(top, 0, 0);
+    // Desligado: só cliques e gestos feitos com esta janela em primeiro plano, sem as linhas "sessão: ...".
+    showAll.CheckedChanged += (_, _) => {
+      events.BeginUpdate();
+      events.Items.Clear();
+      foreach (var e in allEvents) if (PassesFilter(e)) events.Items.Add(e);
+      events.EndUpdate();
+    };
     test.Controls.Add(testArea, 0, 1);
     test.Controls.Add(events, 0, 2);
 
@@ -278,8 +292,15 @@ sealed class OptionsForm : Form {
 
   void OnContacts(int n) => fingers.Text = $"Dedos no touchpad: {n}";
 
+  bool PassesFilter(EventLine e) => showAll.Checked || (!e.Session && !e.Outside);
+
   void AddEvent(string s) {
-    events.Items.Insert(0, $"{DateTime.Now:HH:mm:ss}  {s}");
+    // O aviso chega logo depois do gesto; a janela ativa nessa hora diz onde ele aconteceu.
+    var e = new EventLine($"{DateTime.Now:HH:mm:ss}  {s}", s.Contains("sessão:"), ActiveForm != this);
+    allEvents.Insert(0, e);
+    if (allEvents.Count > 200) allEvents.RemoveAt(allEvents.Count - 1);
+    if (!PassesFilter(e)) return;
+    events.Items.Insert(0, e);
     while (events.Items.Count > 200) events.Items.RemoveAt(events.Items.Count - 1);
   }
 

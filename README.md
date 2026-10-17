@@ -56,7 +56,7 @@ The window has three tabs.
 
 **Teste**
 
-- Shows how many fingers are on the pad, has an area that shows which button you clicked, and lists recent events (each touch's finger count, duration and movement, every click that was converted and every swipe with the app it went to). Use it to tune the values.
+- Shows how many fingers are on the pad, has an area that shows which button you clicked, and lists recent events (each touch's finger count, duration and movement, every click that was converted and every swipe with the app it went to). By default the list shows only clicks and gestures made while the Options window is in front, without the per-touch lines ("sessão: ..."). Tick **Mostrar sessões de toque e eventos em outros apps** to see everything, including events from before the box was ticked (the last 200 are kept).
 
 Changes take effect immediately so you can test them. **OK** saves them, **Cancelar** reverts them and **Restaurar padrões** fills in the defaults (the ticked apps are kept). Settings are stored in `%APPDATA%\TwoFingerClick\settings.json`.
 
