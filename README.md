@@ -1,13 +1,15 @@
 # TwoFingerClick
 
-Adds **two-finger click = right click** to a Bosto USB touchpad on Windows.
+Adds **two- and three-finger clicks and taps** (right click, middle click and more) to a Bosto USB touchpad on Windows.
 
 The touchpad identifies itself as an Apple Magic Trackpad 2 (USB `VID_05AC PID_0265`). Windows does not enable Precision Touchpad mode for it, so it only works as a plain mouse: the cursor moves and you can left-click, but there is no right click with two fingers. TwoFingerClick is a small tray program that fixes that. It needs no driver, no test signing and no change to Secure Boot.
 
 ## What it does
 
-- **Click with two fingers** (physically press the pad) → right click.
-- **Tap with two fingers** → right click. You can turn this off in Options.
+- **Click with two fingers** (physically press the pad) → right click, by default.
+- **Click with three fingers** → middle click, by default (e.g. close a Firefox tab, open a link in a new tab).
+- **Tap with two fingers** → right click, by default. **Tap with three fingers** → nothing, by default.
+- Each of these four gestures can be set in Options to left click, right click, middle click, back, forward or (for taps) nothing.
 - **Touchpad-only cursor speed:** 25–300% on top of the Windows pointer speed. Other mice are not affected.
 - Everything else (one-finger click and the cursor movement itself) still comes from the device's normal mouse behavior.
 
@@ -36,7 +38,8 @@ For a Start menu entry, create a shortcut in `%APPDATA%\Microsoft\Windows\Start 
 
 ### Options window
 
-- **Tempos:** turn the two-finger tap on or off and adjust the timing values (see [Tuning](#tuning)).
+- **Ações:** the action for each gesture (two-finger click, three-finger click, two-finger tap, three-finger tap). For clicks, "Clique esquerdo (sem mudança)" lets the device's left click through unchanged. For taps, "Nada" turns the tap off.
+- **Tempos:** the timing values (see [Tuning](#tuning)).
 - **Cursor do touchpad:** cursor speed for the touchpad only, as a percentage.
 - **Teste:** shows how many fingers are on the pad, has an area that shows which button you clicked, and lists recent events (each touch's finger count, duration and movement, and every click that was converted). Use it to tune the values.
 
@@ -46,7 +49,7 @@ Options:
 
 | Option     | Effect                                                       |
 |------------|--------------------------------------------------------------|
-| `--no-tap` | Turns off the two-finger tap for this run (overrides the saved setting) |
+| `--no-tap` | Turns off the two- and three-finger taps for this run (overrides the saved setting) |
 | `--options`| Opens the Options window on start                            |
 | `--log`    | Writes `TwoFingerClick.log` next to the exe, for debugging (including the settings loaded at start) |
 
@@ -75,7 +78,11 @@ These values can be changed in the Options window:
 
 | Setting (JSON name)                                       | Default | Meaning |
 |-----------------------------------------------------------|---------|---------|
-| Duração máxima do toque (`TapMaxMs`)                      | 220 ms  | A two-finger touch that lasts longer than this is not a tap |
+| Clique com 2 dedos (`TwoFingerClick`)                     | Right   | `Left` (unchanged), `Right`, `Middle`, `Back`, `Forward` |
+| Clique com 3 dedos (`ThreeFingerClick`)                   | Middle  | Same choices |
+| Toque com 2 dedos (`TwoFingerTap`)                        | Right   | Same choices plus `None` |
+| Toque com 3 dedos (`ThreeFingerTap`)                      | None    | Same choices plus `None` |
+| Duração máxima do toque (`TapMaxMs`)                      | 220 ms  | A touch that lasts longer than this is not a tap |
 | Movimento máximo do toque (`TapMaxMove`)                  | 120     | Maximum finger movement for a tap, in touchpad units (about 0–4096) |
 | Validade da contagem de dedos (`StaleMs`)                 | 250 ms  | A finger count older than this is ignored |
 | Ignorar clique esquerdo após toque (`SwallowAfterTapMs`)  | 150 ms  | How long after a tap a left click from the device's firmware is discarded |

@@ -21,7 +21,7 @@ static class Program {
     }
     Application.EnableVisualStyles();
     var settings = Settings.Load();
-    if (Array.IndexOf(args, "--no-tap") >= 0) settings.TapEnabled = false;
+    if (Array.IndexOf(args, "--no-tap") >= 0) settings.TwoFingerTap = settings.ThreeFingerTap = ClickAction.None;
     using var app = new TouchWindow(Array.IndexOf(args, "--log") >= 0, settings);
     using var wait = new RegisteredWaitHandleGuard(ThreadPool.RegisterWaitForSingleObject(show, (_, _) => app.RequestOptions(), null, -1, false));
     if (Array.IndexOf(args, "--options") >= 0) app.RequestOptions();
@@ -57,7 +57,7 @@ sealed class TouchWindow : NativeWindow, IDisposable {
 
   int contacts;
   long lastReport;
-  bool rightHeld;
+  ClickAction? held;        // botão convertido que está apertado (para soltar o mesmo)
   long swallowUntil;
 
   // sessão de toque (de 0 dedos até voltar a 0)
@@ -90,7 +90,7 @@ sealed class TouchWindow : NativeWindow, IDisposable {
     menu.Items.Add("Sair", null, (s, e) => Application.Exit());
     tray = new NotifyIcon { Icon = TrayIcon.Create(), Text = "Clique com 2 dedos", ContextMenuStrip = menu, Visible = true };
     tray.DoubleClick += (s, e) => ShowOptions();
-    Log($"iniciado: toque={Settings.TapEnabled} tapMs={Settings.TapMaxMs} tapMov={Settings.TapMaxMove} " +
+    Log($"iniciado: 2d={Settings.TwoFingerClick} 3d={Settings.ThreeFingerClick} toque2d={Settings.TwoFingerTap} toque3d={Settings.ThreeFingerTap} tapMs={Settings.TapMaxMs} tapMov={Settings.TapMaxMove} " +
         $"staleMs={Settings.StaleMs} engolirMs={Settings.SwallowAfterTapMs} velocidade={Settings.TouchpadSpeed}%");
   }
 
@@ -181,10 +181,11 @@ sealed class TouchWindow : NativeWindow, IDisposable {
       inSession = false;
       long dur = now - sessionStart;
       Event($"sessão: {sessionMax} dedo(s), {dur} ms, mov {moved}{(sessionButton ? ", apertou" : "")}");
-      if (Settings.TapEnabled && sessionMax == 2 && !sessionButton && dur <= Settings.TapMaxMs && moved <= Settings.TapMaxMove) {
-        Event("toque com 2 dedos -> clique direito");
+      var tap = sessionMax == 2 ? Settings.TwoFingerTap : sessionMax == 3 ? Settings.ThreeFingerTap : ClickAction.None;
+      if (tap != ClickAction.None && !sessionButton && dur <= Settings.TapMaxMs && moved <= Settings.TapMaxMove) {
+        Event($"toque com {sessionMax} dedos -> {Name(tap)}");
         swallowUntil = now + Settings.SwallowAfterTapMs;
-        SendRight(true); SendRight(false);
+        Send(tap, true); Send(tap, false);
       }
     }
   }
@@ -198,14 +199,19 @@ sealed class TouchWindow : NativeWindow, IDisposable {
       if (!injected && msg == WM_LBUTTONDOWN) {
         long now = Now;
         if (contacts >= 2 && now - lastReport <= Settings.StaleMs) {
-          Event($"clique com {contacts} dedos -> botão direito");
-          rightHeld = true;
-          SendRight(true);
-          return (IntPtr)1;
+          // 2 dedos e 3 ou mais dedos: ação escolhida nas Opções (Left = deixa passar)
+          var action = contacts >= 3 ? Settings.ThreeFingerClick : Settings.TwoFingerClick;
+          if (action != ClickAction.Left) {
+            Event($"clique com {contacts} dedos -> {Name(action)}");
+            held = action;
+            Send(action, true);
+            return (IntPtr)1;
+          }
         }
         if (now <= swallowUntil) { Event("clique esquerdo do toque engolido"); swallowUntil = -1; return (IntPtr)1; }
       } else if (!injected && msg == WM_LBUTTONUP) {
-        if (rightHeld) { rightHeld = false; SendRight(false); return (IntPtr)1; }
+        // solta o mesmo botão que foi apertado, mesmo que o nº de dedos tenha mudado no meio
+        if (held is ClickAction h) { Send(h, false); held = null; return (IntPtr)1; }
         if (swallowUntil == -1) { swallowUntil = 0; return (IntPtr)1; }
       }
     }
@@ -241,8 +247,27 @@ sealed class TouchWindow : NativeWindow, IDisposable {
     return true;
   }
 
-  static void SendRight(bool down) {
-    var input = new INPUT { Type = 0, Mi = new MOUSEINPUT { Flags = down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP } };
+  public static string Name(ClickAction a) => a switch {
+    ClickAction.Left => "botão esquerdo",
+    ClickAction.Right => "botão direito",
+    ClickAction.Middle => "botão do meio",
+    ClickAction.Back => "voltar",
+    ClickAction.Forward => "avançar",
+    _ => "nada",
+  };
+
+  // Aperta ou solta o botão da ação. Back/Forward são os botões X1/X2 (laterais do mouse).
+  static void Send(ClickAction a, bool down) {
+    uint flags; int data = 0;
+    switch (a) {
+      case ClickAction.Left: flags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP; break;
+      case ClickAction.Right: flags = down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP; break;
+      case ClickAction.Middle: flags = down ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP; break;
+      case ClickAction.Back: flags = down ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP; data = XBUTTON1; break;
+      case ClickAction.Forward: flags = down ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP; data = XBUTTON2; break;
+      default: return;
+    }
+    var input = new INPUT { Type = 0, Mi = new MOUSEINPUT { Flags = flags, MouseData = data } };
     SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
   }
 
@@ -260,6 +285,9 @@ sealed class TouchWindow : NativeWindow, IDisposable {
   const int RIDEV_INPUTSINK = 0x100, RIM_TYPEHID = 2, LLMHF_INJECTED = 1;
   const uint RID_INPUT = 0x10000003, RIDI_DEVICENAME = 0x20000007;
   const uint MOUSEEVENTF_MOVE = 0x0001, MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010;
+  const uint MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
+  const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020, MOUSEEVENTF_MIDDLEUP = 0x0040, MOUSEEVENTF_XDOWN = 0x0080, MOUSEEVENTF_XUP = 0x0100;
+  const int XBUTTON1 = 1, XBUTTON2 = 2;
   const uint MOUSEEVENTF_VIRTUALDESK = 0x4000, MOUSEEVENTF_ABSOLUTE = 0x8000;
   const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77, SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79;
 
