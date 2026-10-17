@@ -1,6 +1,6 @@
 # TwoFingerClick
 
-Adds **two- and three-finger clicks and taps** (right click, middle click and more) to a Bosto USB touchpad on Windows.
+Adds **two- and three-finger clicks and taps** (right click, middle click and more) and a **two-finger swipe for back/forward** in chosen apps to a Bosto USB touchpad on Windows.
 
 The touchpad identifies itself as an Apple Magic Trackpad 2 (USB `VID_05AC PID_0265`). Windows does not enable Precision Touchpad mode for it, so it only works as a plain mouse: the cursor moves and you can left-click, but there is no right click with two fingers. TwoFingerClick is a small tray program that fixes that. It needs no driver, no test signing and no change to Secure Boot.
 
@@ -10,6 +10,7 @@ The touchpad identifies itself as an Apple Magic Trackpad 2 (USB `VID_05AC PID_0
 - **Click with three fingers** → middle click, by default (e.g. close a Firefox tab, open a link in a new tab).
 - **Tap with two fingers** → right click, by default. **Tap with three fingers** → nothing, by default.
 - Each of these four gestures can be set in Options to left click, right click, middle click, back, forward or (for taps) nothing.
+- **Swipe sideways with two fingers** → back (fingers to the right) or forward (to the left), only in the apps you tick in Options. Use it for apps that do not react to the swipe on their own. It is sent as the mouse back/forward buttons or as Alt+←/Alt+→.
 - **Touchpad-only cursor speed:** 25–300% on top of the Windows pointer speed. Other mice are not affected.
 - Everything else (one-finger click and the cursor movement itself) still comes from the device's normal mouse behavior.
 
@@ -38,12 +39,26 @@ For a Start menu entry, create a shortcut in `%APPDATA%\Microsoft\Windows\Start 
 
 ### Options window
 
+The window has three tabs.
+
+**Cliques**
+
 - **Ações:** the action for each gesture (two-finger click, three-finger click, two-finger tap, three-finger tap). For clicks, "Clique esquerdo (sem mudança)" lets the device's left click through unchanged. For taps, "Nada" turns the tap off.
 - **Tempos:** the timing values (see [Tuning](#tuning)).
 - **Cursor do touchpad:** cursor speed for the touchpad only, as a percentage.
-- **Teste:** shows how many fingers are on the pad, has an area that shows which button you clicked, and lists recent events (each touch's finger count, duration and movement, and every click that was converted). Use it to tune the values.
 
-Changes take effect immediately so you can test them. **OK** saves them, **Cancelar** reverts them and **Restaurar padrões** fills in the defaults. Settings are stored in `%APPDATA%\TwoFingerClick\settings.json`.
+**Deslizar**
+
+- A list of the apps with open windows, each with a checkbox. Ticked apps get the two-finger back/forward swipe. Ticked apps stay in the list when they are closed, marked "(fechado)". **Atualizar lista** reloads the open apps.
+- **Enviar como:** mouse back/forward buttons, or the keyboard shortcut Alt+←/Alt+→ for apps that only understand one of them.
+- **Distância mínima:** how far the fingers must travel sideways to trigger, in touchpad units (the pad is about 4096 wide).
+- **Inverter:** fingers to the right = forward.
+
+**Teste**
+
+- Shows how many fingers are on the pad, has an area that shows which button you clicked, and lists recent events (each touch's finger count, duration and movement, every click that was converted and every swipe with the app it went to). Use it to tune the values.
+
+Changes take effect immediately so you can test them. **OK** saves them, **Cancelar** reverts them and **Restaurar padrões** fills in the defaults (the ticked apps are kept). Settings are stored in `%APPDATA%\TwoFingerClick\settings.json`.
 
 Options:
 
@@ -87,3 +102,7 @@ These values can be changed in the Options window:
 | Validade da contagem de dedos (`StaleMs`)                 | 250 ms  | A finger count older than this is ignored |
 | Ignorar clique esquerdo após toque (`SwallowAfterTapMs`)  | 150 ms  | How long after a tap a left click from the device's firmware is discarded |
 | Velocidade (`TouchpadSpeed`)                              | 100%    | Cursor speed when the movement comes from the touchpad |
+| Apps marcados (`SwipeApps`)                               | none    | Process names (lowercase, no `.exe`) that get the swipe |
+| Enviar como (`SwipeMethod`)                               | `MouseButtons` | `MouseButtons` (X1/X2) or `AltArrows` |
+| Inverter (`SwipeInvert`)                                  | false   | true = fingers to the right go forward |
+| Distância mínima (`SwipeMinUnits`)                        | 500     | Sideways travel that triggers the swipe |

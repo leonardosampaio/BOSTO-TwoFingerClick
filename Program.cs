@@ -91,7 +91,8 @@ sealed class TouchWindow : NativeWindow, IDisposable {
     tray = new NotifyIcon { Icon = TrayIcon.Create(), Text = "Clique com 2 dedos", ContextMenuStrip = menu, Visible = true };
     tray.DoubleClick += (s, e) => ShowOptions();
     Log($"iniciado: 2d={Settings.TwoFingerClick} 3d={Settings.ThreeFingerClick} toque2d={Settings.TwoFingerTap} toque3d={Settings.ThreeFingerTap} tapMs={Settings.TapMaxMs} tapMov={Settings.TapMaxMove} " +
-        $"staleMs={Settings.StaleMs} engolirMs={Settings.SwallowAfterTapMs} velocidade={Settings.TouchpadSpeed}%");
+        $"staleMs={Settings.StaleMs} engolirMs={Settings.SwallowAfterTapMs} velocidade={Settings.TouchpadSpeed}% " +
+        $"deslizar={Settings.SwipeMethod}{(Settings.SwipeInvert ? ",invertido" : "")},{Settings.SwipeMinUnits} apps=[{string.Join(",", Settings.SwipeApps)}]");
   }
 
   // Pode ser chamado de outra thread: posta para a thread da janela.
@@ -169,13 +170,17 @@ sealed class TouchWindow : NativeWindow, IDisposable {
 
     sessionMax = Math.Max(sessionMax, n);
     sessionButton |= button;
+    int tips = 0;
     for (int i = 0; i < 5; i++) {
       int o = 1 + i * 5, flags = r[o];
       if ((flags & 0x02) == 0) continue; // sem tip switch
       int id = (flags >> 2) & 7, x = r[o + 1] | r[o + 2] << 8, y = r[o + 3] | r[o + 4] << 8;
       if (!seen[id]) { seen[id] = true; startX[id] = x; startY[id] = y; }
       else moved = Math.Max(moved, Math.Abs(x - startX[id]) + Math.Abs(y - startY[id]));
+      if (tips < 2) { tipId[tips] = id; tipX[tips] = x; tipY[tips] = y; }
+      tips++;
     }
+    Swipe(n == 2 && tips == 2 && !button);
 
     if (n == 0) {
       inSession = false;
@@ -190,11 +195,56 @@ sealed class TouchWindow : NativeWindow, IDisposable {
     }
   }
 
+  // Deslizar com 2 dedos para o lado = voltar/avançar, só nos apps marcados nas Opções.
+  // O app em primeiro plano é conferido quando os 2 dedos encostam; nos outros apps nada muda.
+  const int SwipeLockUnits = 60;    // movimento horizontal dos 2 dedos que já segura o cursor
+  readonly int[] tipId = new int[2], tipX = new int[2], tipY = new int[2];
+  readonly int[] swipeId = new int[2], swipeX = new int[2], swipeY = new int[2];
+  bool swipeDown, swipeEligible, swipeLocked, swipeDone;
+
+  void Swipe(bool twoFingers) {
+    if (!twoFingers) { swipeDown = swipeLocked = false; return; }
+    bool same = swipeDown && ((tipId[0] == swipeId[0] && tipId[1] == swipeId[1]) || (tipId[0] == swipeId[1] && tipId[1] == swipeId[0]));
+    if (!same) {
+      swipeDown = true; swipeLocked = swipeDone = false;
+      for (int i = 0; i < 2; i++) { swipeId[i] = tipId[i]; swipeX[i] = tipX[i]; swipeY[i] = tipY[i]; }
+      var fg = Settings.SwipeApps.Count > 0 ? Apps.Foreground() : null;
+      swipeEligible = fg != null && Settings.SwipeApps.Contains(fg);
+      return;
+    }
+    if (!swipeEligible || swipeDone) return;
+    int a = tipId[0] == swipeId[0] ? 0 : 1, b = 1 - a;
+    int ax = tipX[0] - swipeX[a], ay = tipY[0] - swipeY[a], bx = tipX[1] - swipeX[b], by = tipY[1] - swipeY[b];
+    // os dois dedos andando para o mesmo lado, mais na horizontal que na vertical
+    if (Math.Sign(ax) != Math.Sign(bx) || ax == 0) return;
+    int dx = (ax + bx) / 2, dy = (ay + by) / 2;
+    if (Math.Abs(dx) < 2 * Math.Abs(dy)) return;
+    if (!swipeLocked && Math.Abs(dx) >= SwipeLockUnits) swipeLocked = true;
+    if (Math.Abs(dx) < Settings.SwipeMinUnits) return;
+    swipeDone = true;
+    bool back = (dx > 0) != Settings.SwipeInvert;
+    Event($"deslizar com 2 dedos para a {(dx > 0 ? "direita" : "esquerda")} -> {(back ? "voltar" : "avançar")} ({Apps.Foreground()})");
+    if (Settings.SwipeMethod == SwipeMethod.AltArrows) SendAltArrow(back);
+    else { var act = back ? ClickAction.Back : ClickAction.Forward; Send(act, true); Send(act, false); }
+  }
+
+  static void SendAltArrow(bool left) {
+    ushort arrow = left ? VK_LEFT : VK_RIGHT;
+    var keys = new[] {
+      Key(VK_MENU, 0), Key(arrow, KEYEVENTF_EXTENDEDKEY),
+      Key(arrow, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP), Key(VK_MENU, KEYEVENTF_KEYUP),
+    };
+    SendInput((uint)keys.Length, keys, Marshal.SizeOf<INPUT>());
+  }
+
+  static INPUT Key(ushort vk, uint flags) => new INPUT { Type = 1, Ki = new KEYBDINPUT { Vk = vk, Flags = flags } };
+
   IntPtr HookCallback(int code, IntPtr wParam, IntPtr lParam) {
     if (code >= 0) {
       var info = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
       bool injected = (info.Flags & LLMHF_INJECTED) != 0;
       int msg = (int)wParam;
+      if (!injected && msg == WM_MOUSEMOVE && swipeLocked && Now - lastReport <= Settings.StaleMs) return (IntPtr)1;
       if (!injected && msg == WM_MOUSEMOVE && ScaleMove(info.Pt)) return (IntPtr)1;
       if (!injected && msg == WM_LBUTTONDOWN) {
         long now = Now;
@@ -288,6 +338,8 @@ sealed class TouchWindow : NativeWindow, IDisposable {
   const uint MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
   const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020, MOUSEEVENTF_MIDDLEUP = 0x0040, MOUSEEVENTF_XDOWN = 0x0080, MOUSEEVENTF_XUP = 0x0100;
   const int XBUTTON1 = 1, XBUTTON2 = 2;
+  const ushort VK_MENU = 0x12, VK_LEFT = 0x25, VK_RIGHT = 0x27;
+  const uint KEYEVENTF_EXTENDEDKEY = 0x0001, KEYEVENTF_KEYUP = 0x0002;
   const uint MOUSEEVENTF_VIRTUALDESK = 0x4000, MOUSEEVENTF_ABSOLUTE = 0x8000;
   const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77, SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79;
 
@@ -298,7 +350,8 @@ sealed class TouchWindow : NativeWindow, IDisposable {
   [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
   [StructLayout(LayoutKind.Sequential)] struct MSLLHOOKSTRUCT { public POINT Pt; public int MouseData, Flags, Time; public IntPtr ExtraInfo; }
   [StructLayout(LayoutKind.Sequential)] struct MOUSEINPUT { public int Dx, Dy, MouseData; public uint Flags, Time; public IntPtr ExtraInfo; }
-  [StructLayout(LayoutKind.Explicit)] struct INPUT { [FieldOffset(0)] public int Type; [FieldOffset(8)] public MOUSEINPUT Mi; }
+  [StructLayout(LayoutKind.Sequential)] struct KEYBDINPUT { public ushort Vk, Scan; public uint Flags, Time; public IntPtr ExtraInfo; }
+  [StructLayout(LayoutKind.Explicit)] struct INPUT { [FieldOffset(0)] public int Type; [FieldOffset(8)] public MOUSEINPUT Mi; [FieldOffset(8)] public KEYBDINPUT Ki; }
 
   [DllImport("user32.dll", SetLastError = true)] static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] devices, int count, int size);
   [DllImport("user32.dll")] static extern int GetRawInputData(IntPtr hRaw, uint cmd, IntPtr data, ref int size, int headerSize);
