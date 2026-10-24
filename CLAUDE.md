@@ -60,7 +60,7 @@ dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile
 ```
 
 - Autostart: scheduled task `TwoFingerClick`, trigger at logon of the user, `LogonType Interactive`, `RunLevel Limited`, no time limit, `MultipleInstances IgnoreNew`, runs `publish\TwoFingerClick.exe` with no arguments. Registering it needs no administrator rights. A Startup folder shortcut was used first and was dropped: Windows started it about 4.5 minutes after logon.
-- Start menu: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Clique com 2 dedos.lnk` → exe with `--options`.
+- Start menu: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Bosto Touchpad Clique com 2 dedos.lnk` → exe with `--options`.
 - The first version of the Options window changed the global Windows pointer speed (`SPI_SETMOUSESPEED`) live and restored it on close. Killing the process skipped the restore, and the speed reverted at reboot. The current version only scales touchpad moves and never touches the Windows setting. Keep it that way.
 - The exe is locked while it runs: quit it (tray → Sair, or `Stop-Process -Name TwoFingerClick`) before republishing.
 
